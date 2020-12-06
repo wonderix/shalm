@@ -4,7 +4,7 @@ The following section describes the available methods inside `Chart.star`
 
 ### Chart
 
-#### `chart("<url>",namespace=namespace,proxy='off',...)`
+#### `chart("<url>",namespace=namespace, ...)`
 
 An new chart is created.  
 If no namespace is given, the namespace is inherited from the parent chart.
@@ -13,8 +13,6 @@ If no namespace is given, the namespace is inherited from the parent chart.
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`       | The chart is loaded from the given url. The url can be relative.  In this case the chart is loaded from a path relative to the current chart location.                                                                                       |
 | `namespace` | If no namespace is given, the namespace is inherited from the parent chart.                                                                                                                                                                  |
-| `suffix`    | This suffix is appended to each chart name. The suffix is inhertied from the parent if no value is given                                                                                                                                     |
-| `proxy`     | If `local` or `remote`, a proxy for the chart is returned. Applying or deleting a proxy chart is done by applying a `CustomerResource` to kubernetes. The installation process is then performed by the `shalm-controller` in the background |
 | `...`       | Additional parameters are passed to the `init` method of the corresponding chart.                                                                                                                                                            |
 
 #### `chart.apply(k8s)`
@@ -104,6 +102,32 @@ Load values from yaml file inside chart. The loaded values will override the exi
 | `namespace` | Default namespace of the chart given via command line |
 | `__class__` | Class of the chart. See `chart_class` for details     |
 
+
+### Helm Charts
+
+#### `helm_chart("<url>",namespace=namespace ,...)`
+
+This load a helm chart, which will be installed using `helm upgrade -i`.
+This is necessary, ti the helm chart uses hooks for installations. Otherwise you can directly use `chart`
+
+
+### Dependencies
+
+#### `depends_on("<url>", "constraint", namespace=namespace)`
+
+This load a helm chart, which will be installed using `helm upgrade -i`.
+This is necessary, ti the helm chart uses hooks for installations. Otherwise you can directly use `chart`
+
+
+| Parameter   | Description                                                                                                                                                                                                                                  |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`       | The chart is loaded from the given url. The url can be relative.  In this case the chart is loaded from a path relative to the current chart location.                                                                                       |
+| `constraint` | Version constraint for this chart, if it's already installed.                                                                                                                                                                  |
+| `namespace` | If no namespace is given, the namespace is inherited from the parent chart.                                                                                                                                                                  |
+
+It's also possible to configure dependencies like charts. In the future it will be possible check if properties
+are changed in a compatible way.
+
 ### K8s
 
 
@@ -140,6 +164,21 @@ Get one kubernetes object. The value is returned as a `dict`.
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `kind`             | k8s kind                                                                                                                |
 | `name`             | name of k8s object                                                                                                      |
+| `timeout`          | Timeout passed to `kubectl get`. A timeout of zero means wait forever.                                                  |
+| `namespaced`       | If true object in the current namespace are listed. Otherwise object in cluster scope will be listed. Default is `true` |
+| `namespace`        | Override default namespace of chart                                                                                     |
+| `ignore_not_found` | Ignore not found                                                                                                        |
+
+#### `k8s.patch(kind,name,patch,type='json',namespaced=false,timeout=0,namespace=None,ignore_not_found=False)`
+
+Get one kubernetes object. The value is returned as a `dict`.
+
+| Parameter          | Description                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `kind`             | k8s kind                                                                                                                |
+| `name`             | name of k8s object                                                                                                      |
+| `patch`            | patch, which should be applied                                                                                          |
+| `type`             | Type of the patch. Currently on `json` is supported                                                                     |
 | `timeout`          | Timeout passed to `kubectl get`. A timeout of zero means wait forever.                                                  |
 | `namespaced`       | If true object in the current namespace are listed. Otherwise object in cluster scope will be listed. Default is `true` |
 | `namespace`        | Override default namespace of chart                                                                                     |
@@ -233,6 +272,30 @@ Creates a new user credential. All user credentials assigned to a root attribute
 | `password`     | Password. If it's empty it's either read from the secret or created with a random content. |
 | `username_key` | The name of the key used to store the username inside the secret                           |
 | `password_key` | The name of the key used to store the password inside the secret                           |
+
+### properties
+
+#### `property(type='string',default=None)`
+
+Creates a new property.
+
+| Parameter      | Description                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `type`         | Type of the property                             |
+| `default`     | Default value |
+
+
+#### `struct_property(*kwargs)`
+
+Creates a new structured property.
+
+| Parameter      | Description                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `kwargs`       | List of proerties (e.g. `password = property()`)  |
+
+#### `chart_property()`
+
+Creates a property to hold a reference to another chart.
 
 ##### Attributes
 

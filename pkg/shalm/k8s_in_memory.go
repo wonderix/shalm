@@ -2,11 +2,14 @@ package shalm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/blang/semver"
+	"github.com/Masterminds/semver/v3"
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // K8sInMemory in memory implementation of K8s
@@ -43,7 +46,7 @@ func (k K8sInMemory) Host() string {
 }
 
 // ForSubChart -
-func (k K8sInMemory) ForSubChart(namespace string, app string, version semver.Version, children int) K8s {
+func (k K8sInMemory) ForSubChart(namespace string, app string, version *semver.Version, children int) K8s {
 	return &K8sInMemory{namespace: namespace, objects: k.objects}
 }
 
@@ -118,6 +121,36 @@ func (k K8sInMemory) Get(kind string, name string, options *K8sOptions) (*Object
 	return k.GetObject(kind, name, options)
 }
 
+// Patch -
+func (k K8sInMemory) Patch(kind string, name string, pt types.PatchType, patchJSON string, options *K8sOptions) (*Object, error) {
+	obj, err := k.GetObject(kind, name, options)
+	if err != nil {
+		return nil, err
+	}
+	if pt != types.JSONPatchType {
+		return nil, errors.New("Not implemented")
+	}
+	patch, err := jsonpatch.DecodePatch([]byte(patchJSON))
+	if err != nil {
+		return nil, err
+	}
+	original, err := json.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	modified, err := patch.Apply(original)
+	if err != nil {
+		return nil, err
+	}
+	modifyedObj := &Object{}
+	err = json.Unmarshal(modified, modifyedObj)
+	if err != nil {
+		return nil, err
+	}
+	k.objects[k.key(obj.Kind, obj.MetaData.Name, obj.MetaData.Namespace, options)] = *modifyedObj
+	return modifyedObj, nil
+}
+
 // List -
 func (k K8sInMemory) List(kind string, options *K8sOptions, listOptions *ListOptions) (*Object, error) {
 	return nil, errors.New("Not implemented")
@@ -161,9 +194,34 @@ func (k K8sInMemory) GetObject(kind string, name string, options *K8sOptions) (*
 		for k := range k.objects {
 			keys = append(keys, k)
 		}
+		if options != nil && options.IgnoreNotFound {
+			return nil, nil
+		}
 		return nil, notFoundError(fmt.Sprintf("NotFound: %s %s ", k.key(kind, name, "", options), strings.Join(keys, ", ")))
 	}
 	return &obj, nil
+}
+
+func (k K8sInMemory) CreateOrUpdate(obj *Object, mutate func(obj *Object) error, options *K8sOptions) (*Object, error) {
+	old, err := k.GetObject(obj.Kind, obj.MetaData.Name, options)
+	if err != nil {
+		if !k.IsNotExist(err) {
+			return nil, err
+		}
+	} else {
+		obj = old
+	}
+	err = mutate(obj)
+	if err != nil {
+		return nil, err
+	}
+	k.objects[k.key(obj.Kind, obj.MetaData.Name, obj.MetaData.Namespace, options)] = *obj
+	return obj, nil
+}
+
+func (k K8sInMemory) DeleteByName(kind string, name string, options *K8sOptions) error {
+	delete(k.objects, k.key(kind, name, "", options))
+	return nil
 }
 
 // Progress -

@@ -47,7 +47,19 @@ type kubeVersions struct {
 	Version    string
 }
 
+type apiVersions []string
+
+func (a apiVersions) Has(version string) bool {
+	for _, v := range a {
+		if v == version {
+			return true
+		}
+	}
+	return false
+}
+
 type capabilities struct {
+	APIVersions apiVersions
 	KubeVersion kubeVersions
 }
 
@@ -158,11 +170,12 @@ func (c *chartImpl) helmTemplate(thread *starlark.Thread, dir string, glob strin
 			BasePath: ".",
 		},
 		Capabilities: capabilities{
+			APIVersions: apiVersions{"v1"},
 			KubeVersion: kubeVersions{
 				GitVersion: kubeSemver.String(),
 				Version:    kubeSemver.String(),
-				Major:      int(kubeSemver.Major),
-				Minor:      int(kubeSemver.Minor),
+				Major:      int(kubeSemver.Major()),
+				Minor:      int(kubeSemver.Minor()),
 			},
 		},
 		Files: renderer.Files{Dir: c.dir},

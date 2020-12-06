@@ -105,7 +105,7 @@ var _ = Describe("K8sValue", func() {
 		Expect(kind).To(Equal("kind"))
 		Expect(name).To(Equal("object"))
 		Expect(options.Timeout).To(Equal(10 * time.Second))
-		Expect(options.Namespaced).To(BeTrue())
+		Expect(options.ClusterScoped).To(BeFalse())
 		Expect(fake.WaitCallCount()).To(Equal(1))
 		Expect(fake.DeleteObjectCallCount()).To(Equal(1))
 		Expect(fake.GetCallCount()).To(Equal(1))

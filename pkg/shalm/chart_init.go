@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/k14s/starlark-go/starlark"
@@ -30,9 +31,28 @@ func (c *chartImpl) loadYaml(name string) error {
 		return err
 	}
 	for k, v := range values {
-		c.values[k] = ToStarlark(v)
+		c.values[k] = toProperty(v)
 	}
 	return nil
+}
+
+func toProperty(vi interface{}) PropertyValue {
+	if vi == nil {
+		return newProperty(starlark.None)
+	}
+	switch v := reflect.ValueOf(vi); v.Kind() {
+	case reflect.Map:
+		s := newStructProperty(true)
+		for _, key := range v.MapKeys() {
+			strct := v.MapIndex(key)
+			keyValue := key.Interface().(string)
+			s.add(keyValue, toProperty(strct.Interface()))
+		}
+		return s
+	default:
+		return newProperty(ToStarlark(vi))
+	}
+
 }
 
 func (c *chartImpl) loadYamlFunction() starlark.Callable {
@@ -46,7 +66,7 @@ func (c *chartImpl) loadYamlFunction() starlark.Callable {
 }
 
 // NewChartFunction -
-func NewChartFunction(repo Repo, dir string, subChartValues func(name string) map[string]interface{}, options ...ChartOption) func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (value starlark.Value, e error) {
+func NewChartFunction(repo Repo, dir string, options ...ChartOption) func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (value starlark.Value, e error) {
 	return func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (value starlark.Value, e error) {
 		if len(args) == 0 {
 			return starlark.None, fmt.Errorf("%s: got %d arguments, want at most %d", "chart", 0, 1)
@@ -61,24 +81,19 @@ func NewChartFunction(repo Repo, dir string, subChartValues func(name string) ma
 		parser.Arg("namespace", func(value starlark.Value) {
 			co.namespace = value.(starlark.String).GoString()
 		})
-		parser.Arg("proxy", func(value starlark.Value) {
-			_ = co.proxyMode.Set(value.(starlark.String).GoString())
-		})
 		parser.Arg("suffix", func(value starlark.Value) {
 			co.suffix = value.(starlark.String).GoString()
 		})
-		co.kwargs = parser.Parse()
-		if subChartValues != nil {
-			co.values = subChartValues(filepath.Base(url))
-		}
+		WithKwArgs(parser.Parse())(co)
 		return repo.Get(thread, url, co.Merge())
 	}
 }
 
-func (c *chartImpl) init(thread *starlark.Thread, repo Repo, hasChartYaml bool, args starlark.Tuple, kwargs []starlark.Tuple) error {
+func (c *chartImpl) init(thread *starlark.Thread, hasChartYaml bool, co *ChartOptions) error {
 	c.methods["apply"] = c.applyFunction()
 	c.methods["delete"] = c.deleteFunction()
 	c.methods["template"] = c.templateFunction()
+	c.methods["__template"] = c.templateFunction()
 	c.methods["__apply"] = c.applyLocalFunction()
 	c.methods["__delete"] = c.deleteLocalFunction()
 	c.methods["helm"] = c.helmTemplateFunction()
@@ -94,14 +109,18 @@ func (c *chartImpl) init(thread *starlark.Thread, repo Repo, hasChartYaml bool, 
 			return fmt.Errorf("Neither Chart.star nor Chart.yaml nor values.yaml exists in %s", c.dir)
 		}
 	} else {
-
+		usedBy := func() string { return fmt.Sprintf("%s-%s", c.namespace, c.genus) }
 		internal := starlark.StringDict{
 			"version":         starlark.String(version),
 			"kube_version":    starlark.String(kubeVersion),
-			"chart":           c.builtin("chart", NewChartFunction(repo, c.dir, c.subChartValues, c.ChartOptions.Merge())),
+			"chart":           c.builtin("chart", NewChartFunction(c.repo, c.dir, c.ChartOptions.Merge())),
+			"helm_chart":      c.builtin("chart", NewHelmChartFunction(c.repo, c.dir, c.ChartOptions.Merge())),
 			"user_credential": c.builtin("user_credential", makeUserCredential),
 			"config_value":    c.builtin("config_value", makeConfigValue),
 			"certificate":     c.builtin("certificate", makeCertificate),
+			"depends_on":      c.builtin("dependency", makeDependency(usedBy, c.repo, c.namespace)),
+			"property":        c.builtin("property", makeProperty),
+			"struct_property": c.builtin("struct_property", makeStructProperty),
 			"struct":          starlark.NewBuiltin("struct", starlarkstruct.Make),
 			"inject":          starlark.NewBuiltin("inject", makeInjectedFiles(c.dir)),
 		}
@@ -121,14 +140,14 @@ func (c *chartImpl) init(thread *starlark.Thread, repo Repo, hasChartYaml bool, 
 		}
 
 		if c.initFunc != nil {
-			_, err := starlark.Call(thread, c.initFunc, append([]starlark.Value{c}, args...), kwargs)
+			_, err := starlark.Call(thread, c.initFunc, append([]starlark.Value{c}, co.args...), co.KwArgs(c.initFunc))
 			if err != nil {
 				return err
 			}
 		}
 	}
-	c.methods["apply"] = c.wrapNamespace(c.methods["apply"], c.namespace)
-	c.methods["delete"] = c.wrapNamespace(c.methods["delete"], c.namespace)
+	c.methods["apply"] = c.wrapNamespace(c.wrapApply(c.methods["apply"]))
+	c.methods["delete"] = c.wrapNamespace(c.wrapDelete(c.methods["delete"]))
 
 	return nil
 }
@@ -147,19 +166,7 @@ func (s *chartMethod) CallInternal(thread *starlark.Thread, args starlark.Tuple,
 	return starlark.Call(thread, s.Function, allArgs, kwargs)
 }
 
-func (c *chartImpl) subChartValues(name string) map[string]interface{} {
-	value, ok := c.values[name]
-	if !ok {
-		return nil
-	}
-	d, ok := value.(*starlark.Dict)
-	if !ok {
-		return nil
-	}
-	return ToGoMap(d)
-}
-
-func (c *chartImpl) wrapNamespace(callable starlark.Callable, namespace string) starlark.Callable {
+func (c *chartImpl) wrapNamespace(callable starlark.Callable) starlark.Callable {
 	return c.builtin("wrap_namespace", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (value starlark.Value, e error) {
 		if len(args) == 0 {
 			return nil, fmt.Errorf("Missing first argument k8s")
@@ -170,7 +177,7 @@ func (c *chartImpl) wrapNamespace(callable starlark.Callable, namespace string) 
 		}
 		children := 0
 		c.eachSubChart(func(subChart *chartImpl) error { children++; return nil })
-		subK8s := k.ForSubChart(namespace, c.GetName(), c.GetVersion(), children)
+		subK8s := k.ForSubChart(c.namespace, c.GetName(), c.GetVersion(), children)
 		args[0] = &k8sValueImpl{subK8s}
 		value, err := starlark.Call(thread, callable, args, kwargs)
 		return value, err

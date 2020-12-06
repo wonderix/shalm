@@ -1,14 +1,14 @@
 package shalm
 
 import (
-	"github.com/blang/semver"
+	"github.com/Masterminds/semver/v3"
 )
 
 var version = "latest"
 
 var kubeVersion = "v1.17.0"
 
-var kubeSemver, _ = semver.ParseTolerant(kubeVersion)
+var kubeSemver, _ = semver.NewVersion(kubeVersion)
 
 // Version -
 func Version() string {
@@ -17,9 +17,9 @@ func Version() string {
 
 // DockerTag -
 func DockerTag() string {
-	v, err := semver.Parse(version)
-	if err != nil || len(v.Pre) > 0 {
+	v, err := semver.NewVersion(version)
+	if err != nil || len(v.Prerelease()) > 0 {
 		return "latest"
 	}
-	return v.String()
+	return version
 }

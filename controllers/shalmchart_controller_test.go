@@ -13,7 +13,7 @@ import (
 	goruntime "runtime"
 	"time"
 
-	"github.com/blang/semver"
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/wonderix/shalm/pkg/shalm"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,11 +67,14 @@ var _ = Describe("ShalmChartReconciler", func() {
 					return cb.Encode()(buffer)
 				},
 			}
-			k8s.ForSubChartStub = func(s string, app string, version semver.Version, children int) shalm.K8s {
+			k8s.ForSubChartStub = func(s string, app string, version *semver.Version, children int) shalm.K8s {
 				return k8s
 			}
 			k8s.WithContextStub = func(ctx context.Context) shalm.K8s {
 				return k8s
+			}
+			k8s.GetStub = func(s string, s2 string, options *shalm.K8sOptions) (*shalm.Object, error) {
+				return &shalm.Object{}, nil
 			}
 
 			clnt := &FakeClient{

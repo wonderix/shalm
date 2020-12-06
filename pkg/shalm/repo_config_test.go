@@ -27,6 +27,14 @@ var _ = Describe("Repo Config", func() {
 		Expect(c.Credentials[0].Password).To(Equal("password"))
 	})
 
+	It("catalog works", func() {
+		c := &repoConfigs{}
+		err := WithCatalog("url")(c)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.Catalogs).To(HaveLen(1))
+		Expect(c.Catalogs[0]).To(Equal("url"))
+	})
+
 	It("config file works", func() {
 		c := &repoConfigs{}
 		dir := NewTestDir()

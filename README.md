@@ -12,7 +12,6 @@ This project brings the starlark scripting language to helm charts.
 * Define APIs for helm charts
 * Control deployment by overriding methods
 * Compatible with helm
-* Share a common service like a database manager or an ingress between a set of sub charts
 * Use starlark methods in templates (replacement for `_helpers.tpl`)
 * Interact with kubernetes during installation
 * Manage user credentials

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/blang/semver"
+	"github.com/Masterminds/semver/v3"
 	"github.com/k14s/starlark-go/starlark"
 	"github.com/pkg/errors"
 )
@@ -96,7 +96,7 @@ func validateVersion(version string) error {
 	if len(version) == 0 {
 		return nil
 	}
-	_, err := semver.ParseTolerant(version)
+	_, err := semver.NewVersion(version)
 	return err
 }
 
@@ -110,11 +110,11 @@ func (cc *chartClass) Validate() error {
 	return nil
 }
 
-func (cc *chartClass) GetVersion() semver.Version {
+func (cc *chartClass) GetVersion() *semver.Version {
 	if len(cc.Version) == 0 {
-		return semver.Version{}
+		return &semver.Version{}
 	}
-	result, err := semver.ParseTolerant(cc.Version)
+	result, err := semver.NewVersion(cc.Version)
 	if err != nil {
 		panic(errors.Wrap(err, "Invalid version in helm chart"))
 	}

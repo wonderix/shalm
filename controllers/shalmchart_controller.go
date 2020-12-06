@@ -161,7 +161,7 @@ func (r *ShalmChartReconciler) delete(spec *shalmv1a2.ChartSpec, progressCb shal
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 	defer cancel()
-	return chart.Delete(thread, k8s.WithContext(ctx))
+	return chart.Delete(thread, k8s.WithContext(ctx), &shalm.DeleteOptions{})
 }
 
 // SetupWithManager -

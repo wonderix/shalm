@@ -10,7 +10,7 @@ import (
 
 	runtime2 "k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/blang/semver"
+	"github.com/Masterminds/semver/v3"
 	"github.com/k14s/starlark-go/starlark"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -68,12 +68,6 @@ var _ = Describe("Repo", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(chart.GetName()).To(Equal("mariadb"))
 		})
-		It("creates a proxy", func() {
-			chart, err := repo.Get(thread, path.Join(example, "mariadb-6.12.2.tgz"), WithNamespace("namespace"), WithProxy(ProxyModeLocal))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(chart.GetName()).To(Equal("mariadb"))
-			Expect(chart).To(BeAssignableToTypeOf(&chartProxy{}))
-		})
 		It("creates chart from spec", func() {
 			tgz, err := ioutil.ReadFile(path.Join(example, "mariadb-6.12.2.tgz"))
 			Expect(err).ToNot(HaveOccurred())
@@ -89,26 +83,32 @@ var _ = Describe("Repo", func() {
 		})
 
 	})
+	version := semver.MustParse("v0.6.1")
 	Context("name and version", func() {
 		It("guesses github releases correct", func() {
-			options := chartOptions(guessIDAndVersion("https://github.com/wonderix/shalm/releases/download/v0.6.1/shalm-0.6.1-dirty.tgz", nil))
+			options := NewGenusAndVersion("https://github.com/wonderix/shalm/releases/download/v0.6.1/shalm-0.6.1-dirty.tgz")
 			Expect(options.genus).To(Equal("github.com_wonderix_shalm"))
-			Expect(options.version).To(Equal(&semver.Version{Major: 0, Minor: 6, Patch: 1}))
+			Expect(options.version).To(Equal(version))
 		})
 		It("guesses github archives correct", func() {
-			options := chartOptions(guessIDAndVersion("https://github.com/wonderix/shalm/archive/0.6.1.zip", nil))
+			options := NewGenusAndVersion("https://github.com/wonderix/shalm/archive/0.6.1.zip")
 			Expect(options.genus).To(Equal("github.com_wonderix_shalm"))
-			Expect(options.version).To(Equal(&semver.Version{Major: 0, Minor: 6, Patch: 1}))
+			Expect(options.version).To(Equal(semver.MustParse("0.6.1")))
 		})
 		It("guesses github enterprise archives correct", func() {
-			options := chartOptions(guessIDAndVersion("https://github.tools.sap/api/v3/repos/cki/cf-for-k8s-scp/zipball/v0.6.1", nil))
+			options := NewGenusAndVersion("https://github.tools.sap/api/v3/repos/cki/cf-for-k8s-scp/zipball/v0.6.1")
 			Expect(options.genus).To(Equal("github.tools.sap_cki_cf-for-k8s-scp"))
-			Expect(options.version).To(Equal(&semver.Version{Major: 0, Minor: 6, Patch: 1}))
+			Expect(options.version).To(Equal(version))
 		})
 		It("other url matches", func() {
-			options := chartOptions(guessIDAndVersion("https://test.com/test/v0.6.1", nil))
+			options := NewGenusAndVersion("https://test.com/test/v0.6.1")
 			Expect(options.genus).To(Equal("test.com_test"))
-			Expect(options.version).To(Equal(&semver.Version{Major: 0, Minor: 6, Patch: 1}))
+			Expect(options.version).To(Equal(version))
 		})
+		It("catalog matches", func() {
+			options := NewGenusAndVersion("catalog:istio")
+			Expect(options.genus).To(Equal("istio"))
+		})
+
 	})
 })

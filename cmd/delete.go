@@ -11,6 +11,7 @@ import (
 
 var deleteChartArgs = shalm.ChartOptions{}
 var deleteK8sArgs = shalm.K8sConfigs{}
+var deleteOptions = shalm.DeleteOptions{}
 
 var deleteCmd = &cobra.Command{
 	Use:   "delete [chart]",
@@ -24,11 +25,11 @@ var deleteCmd = &cobra.Command{
 		if err != nil {
 			exit(err)
 		}
-		exit(delete(args[0], k8s, deleteChartArgs.Merge()))
+		exit(delete(args[0], k8s, &deleteOptions, deleteChartArgs.Merge()))
 	},
 }
 
-func delete(url string, k shalm.K8s, opts ...shalm.ChartOption) error {
+func delete(url string, k shalm.K8s, deleteOpt *shalm.DeleteOptions, opts ...shalm.ChartOption) error {
 	repo, err := repo()
 	if err != nil {
 		return err
@@ -38,11 +39,12 @@ func delete(url string, k shalm.K8s, opts ...shalm.ChartOption) error {
 	if err != nil {
 		return err
 	}
-	return c.Delete(thread, k)
+	return c.Delete(thread, k, deleteOpt)
 }
 
 func init() {
 	deleteChartArgs.AddFlags(deleteCmd.Flags())
 	deleteK8sArgs.AddFlags(deleteCmd.Flags())
 	rootOsbConfig.AddFlags(deleteCmd.Flags())
+	deleteOptions.AddFlags(deleteCmd.Flags())
 }

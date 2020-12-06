@@ -6,54 +6,17 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/blang/semver"
+	"github.com/Masterminds/semver/v3"
 	"github.com/k14s/starlark-go/starlark"
 	"github.com/spf13/pflag"
-	"sigs.k8s.io/yaml"
 )
 
-// ProxyMode -
-type ProxyMode int
-
-const (
-	// ProxyModeOff -
-	ProxyModeOff = iota
-	// ProxyModeLocal -
-	ProxyModeLocal
-	// ProxyModeRemote -
-	ProxyModeRemote
-)
-
-func (p ProxyMode) String() string {
-	return [...]string{"off", "local", "remote"}[p]
+// Properties -
+type Properties struct {
+	dict *starlark.Dict
 }
 
-// Set -
-func (p *ProxyMode) Set(val string) error {
-	switch val {
-	case "off":
-		*p = ProxyModeOff
-	case "":
-		*p = ProxyModeOff
-	case "local":
-		*p = ProxyModeLocal
-	case "remote":
-		*p = ProxyModeRemote
-	default:
-		return fmt.Errorf("invalid proxy mode %s", val)
-	}
-	return nil
-}
-
-// Type -
-func (p *ProxyMode) Type() string {
-	return "proxy-mode"
-}
-
-// KwArgsVar -
-type KwArgsVar []starlark.Tuple
-
-func (p KwArgsVar) String() string {
+func (p Properties) String() string {
 	return `""`
 }
 
@@ -70,131 +33,214 @@ func parseSet(val string, cb func(key string, value string) error) error {
 	return nil
 }
 
+func (p *Properties) get(key string) starlark.Value {
+	if p.dict == nil {
+		return starlark.None
+	}
+	v, found, err := p.dict.Get(starlark.String(key))
+	if err != nil {
+		panic(err)
+	}
+	if !found {
+		return starlark.None
+	}
+	return v
+}
+
+func (p *Properties) delete(key string) starlark.Value {
+	if p.dict == nil {
+		return starlark.None
+	}
+	v, found, err := p.dict.Delete(starlark.String(key))
+	if err != nil {
+		panic(err)
+	}
+	if !found {
+		return starlark.None
+	}
+	return v
+}
+
+func (p *Properties) set(key string, value starlark.Value) {
+	if p.dict == nil {
+		p.dict = starlark.NewDict(0)
+	}
+	p.dict.SetKey(starlark.String(key), value)
+}
+
+func (p *Properties) setWithMap(values map[string]interface{}) {
+	for k, v := range values {
+		p.set(k, ToStarlark(v))
+	}
+}
+
+// GetValue -
+func (p *Properties) GetValue() starlark.Value {
+	if p.dict == nil {
+		p.dict = starlark.NewDict(0)
+	}
+	return p.dict
+}
+
 // Set -
-func (p *KwArgsVar) Set(val string) error {
+func (p *Properties) Set(val string) error {
 	return parseSet(val, func(key string, value string) error {
-		*p = append(*p, starlark.Tuple{starlark.String(key), starlark.String(value)})
+		p.set(key, starlark.String(value))
 		return nil
 	})
 }
 
 // Type -
-func (p KwArgsVar) Type() string {
-	return "kwargs"
+func (p Properties) Type() string {
+	return "properties"
 }
 
-type kwArgsYamlVar struct {
-	kwargs *KwArgsVar
+type propertiesYamlVar struct {
+	properties *Properties
 }
 
-func (p kwArgsYamlVar) String() string {
-	return p.kwargs.String()
+func (p propertiesYamlVar) String() string {
+	return p.properties.String()
 }
 
 // Set -
-func (p *kwArgsYamlVar) Set(val string) error {
+func (p *propertiesYamlVar) Set(val string) error {
 	return parseSet(val, func(key string, value string) error {
 		var v map[string]interface{}
 		err := readYamlFile(value, &v)
 		if err != nil {
 			return err
 		}
-		*p.kwargs = append(*p.kwargs, starlark.Tuple{starlark.String(key), ToStarlark(v)})
+		p.properties.set(key, ToStarlark(v))
 		return nil
 	})
 }
 
 // Type -
-func (p kwArgsYamlVar) Type() string {
-	return "kwargs-yaml"
+func (p propertiesYamlVar) Type() string {
+	return "properties-yaml"
 }
 
-// kwArgsFileVar -
-type kwArgsFileVar struct {
-	kwargs *KwArgsVar
+// proeprtiesFileVar -
+type proeprtiesFileVar struct {
+	properties *Properties
 }
 
-func (p kwArgsFileVar) String() string {
-	return p.kwargs.String()
+func (p proeprtiesFileVar) String() string {
+	return p.properties.String()
 }
 
 // Set -
-func (p *kwArgsFileVar) Set(val string) error {
+func (p *proeprtiesFileVar) Set(val string) error {
 	return parseSet(val, func(key string, value string) error {
 		data, err := ioutil.ReadFile(value)
 		if err != nil {
 			return err
 		}
-		*p.kwargs = append(*p.kwargs, starlark.Tuple{starlark.String(key), starlark.String(string(data))})
+		p.properties.set(key, starlark.String(string(data)))
 		return nil
 	})
 }
 
 // Type -
-func (p kwArgsFileVar) Type() string {
-	return "kwargs-file"
+func (p proeprtiesFileVar) Type() string {
+	return "properties-file"
 }
 
-type kwArgsEnvVar struct {
-	kwargs *KwArgsVar
+type propertiesEnvVar struct {
+	properties *Properties
 }
 
-func (p kwArgsEnvVar) String() string {
-	return p.kwargs.String()
+func (p propertiesEnvVar) String() string {
+	return p.properties.String()
 }
 
 // Set -
-func (p *kwArgsEnvVar) Set(val string) error {
+func (p *propertiesEnvVar) Set(val string) error {
 	return parseSet(val, func(key string, value string) error {
-		*p.kwargs = append(*p.kwargs, starlark.Tuple{starlark.String(key), starlark.String(os.Getenv(value))})
+		p.properties.set(key, starlark.String(os.Getenv(value)))
 		return nil
 	})
 }
 
 // Type -
-func (p kwArgsEnvVar) Type() string {
-	return "kwargs-env"
+func (p propertiesEnvVar) Type() string {
+	return "properties-env"
 }
 
-type valuesFile map[string]interface{}
+type propertiesFile struct {
+	properties *Properties
+}
 
-func (p valuesFile) String() string {
-	if p == nil {
-		return ""
-	}
-	data, err := yaml.Marshal(p)
-	if err != nil {
-		return err.Error()
-	}
-	return string(data)
+func (p propertiesFile) String() string {
+	return p.properties.String()
 }
 
 // Set -
-func (p *valuesFile) Set(val string) error {
-	return readYamlFile(val, p)
+func (p *propertiesFile) Set(val string) error {
+	var values map[string]interface{}
+	err := readYamlFile(val, &values)
+	if err != nil {
+		return err
+	}
+	p.properties.setWithMap(values)
+	return nil
 }
 
 // Type -
-func (p valuesFile) Type() string {
+func (p propertiesFile) Type() string {
 	return "values"
+}
+
+type GenusAndVersion struct {
+	genus   string
+	version *semver.Version
+}
+
+func NewGenusAndVersion(url string) *GenusAndVersion {
+	var match []string
+	if match = githubRelease.FindStringSubmatch(url); match != nil {
+		return extractGenusAndVersion(match[1], match[2])
+	}
+	if match = githubArchive.FindStringSubmatch(url); match != nil {
+		return extractGenusAndVersion(match[1], match[2])
+	}
+	if match = githubEnterpriseArchive.FindStringSubmatch(url); match != nil {
+		return extractGenusAndVersion(match[1]+"/"+match[2], match[3])
+	}
+	if match = otherURL.FindStringSubmatch(url); match != nil {
+		return extractGenusAndVersion(match[2], match[3])
+	}
+	if match = catalogURL.FindStringSubmatch(url); match != nil {
+		return extractGenusAndVersion(match[1], "")
+	}
+	return &GenusAndVersion{}
 }
 
 // ChartOptions -
 type ChartOptions struct {
-	namespace string
-	suffix    string
-	proxyMode ProxyMode
-	args      starlark.Tuple
-	kwargs    KwArgsVar
-	values    valuesFile
-	skipChart bool
-	readOnly  bool
-	genus     string
-	version   *semver.Version
+	GenusAndVersion
+	namespace  string
+	suffix     string
+	args       starlark.Tuple
+	properties Properties
+	skipChart  bool
+	readOnly   bool
 }
 
 // ChartOption -
 type ChartOption func(options *ChartOptions)
+
+func (s *GenusAndVersion) AsOptions() []ChartOption {
+	result := make([]ChartOption, 0)
+	if len(s.genus) != 0 {
+		result = append(result, WithGenus(s.genus))
+	}
+	if s.version != nil {
+		result = append(result, WithVersion(s.version))
+	}
+	return result
+}
 
 // WithNamespace -
 func WithNamespace(namespace string) ChartOption {
@@ -207,8 +253,8 @@ func WithGenus(value string) ChartOption {
 }
 
 // WithVersion -
-func WithVersion(value semver.Version) ChartOption {
-	return func(options *ChartOptions) { options.version = &value }
+func WithVersion(value *semver.Version) ChartOption {
+	return func(options *ChartOptions) { options.version = value }
 }
 
 // WithSuffix -
@@ -216,24 +262,33 @@ func WithSuffix(suffix string) ChartOption {
 	return func(options *ChartOptions) { options.suffix = suffix }
 }
 
-// WithProxy -
-func WithProxy(proxy ProxyMode) ChartOption {
-	return func(options *ChartOptions) { options.proxyMode = proxy }
-}
-
 // WithArgs -
 func WithArgs(args starlark.Tuple) ChartOption {
 	return func(options *ChartOptions) { options.args = args }
 }
 
+// WithProperties -
+func WithProperties(properties *starlark.Dict) ChartOption {
+	return func(options *ChartOptions) { options.properties = Properties{dict: properties} }
+}
+
 // WithKwArgs -
 func WithKwArgs(kwargs []starlark.Tuple) ChartOption {
-	return func(options *ChartOptions) { options.kwargs = kwargs }
+	return func(options *ChartOptions) {
+		for _, arg := range kwargs {
+			if arg.Len() == 2 {
+				key, keyOK := arg.Index(0).(starlark.String)
+				if keyOK {
+					options.properties.set(key.GoString(), arg.Index(1))
+				}
+			}
+		}
+	}
 }
 
 // WithValues -
 func WithValues(values map[string]interface{}) ChartOption {
-	return func(options *ChartOptions) { options.values = valuesFile(values) }
+	return func(options *ChartOptions) { options.properties.setWithMap(values) }
 }
 
 // WithSkipChart -
@@ -252,14 +307,25 @@ func (v *ChartOptions) AddFlags(flagsSet *pflag.FlagSet) {
 	if defaultNamespace == "" {
 		defaultNamespace = "default"
 	}
-	flagsSet.Var(&v.kwargs, "set", "Set values (key=val).")
-	flagsSet.Var(&kwArgsYamlVar{kwargs: &v.kwargs}, "set-yaml", "Set values from respective YAML files (key=path).")
-	flagsSet.Var(&kwArgsFileVar{kwargs: &v.kwargs}, "set-file", "Set values from respective files (key=path).")
-	flagsSet.Var(&kwArgsEnvVar{kwargs: &v.kwargs}, "set-env", "Set values from respective environment variable (key=env).")
-	flagsSet.VarP(&v.proxyMode, "proxy", "p", "Install helm chart using a combination of CR and operator. Possible values off, local and remote")
+	flagsSet.Var(&v.properties, "set", "Set values (key=val).")
+	flagsSet.Var(&propertiesYamlVar{properties: &v.properties}, "set-yaml", "Set values from respective YAML files (key=path).")
+	flagsSet.Var(&proeprtiesFileVar{properties: &v.properties}, "set-file", "Set values from respective files (key=path).")
+	flagsSet.Var(&propertiesEnvVar{properties: &v.properties}, "set-env", "Set values from respective environment variable (key=env).")
 	flagsSet.StringVarP(&v.namespace, "namespace", "n", defaultNamespace, "namespace for installation")
 	flagsSet.StringVarP(&v.suffix, "suffix", "s", "", "Suffix which is used to build the chart name")
-	flagsSet.VarP(&v.values, "values", "f", "Load additional values from a file")
+	flagsSet.VarP(&propertiesFile{properties: &v.properties}, "values", "f", "Load additional values from a file")
+}
+
+func (v *ChartOptions) KwArgs(f *starlark.Function) []starlark.Tuple {
+	result := []starlark.Tuple{}
+	for i := 1; i < f.NumParams(); i++ {
+		arg, _ := f.Param(i)
+		value := v.properties.delete(arg)
+		if value != starlark.None {
+			result = append(result, starlark.Tuple{starlark.String(arg), value})
+		}
+	}
+	return result
 }
 
 // Merge -

@@ -29,6 +29,52 @@ def template(self,glob='',k8s=None):
   return self.ytt("yttx",self.helm())  # Use ytt templating with templates in directory 'yttx' feeding in output from another helm template
 ```
 
+### Using properties
+
+With properties, you are able to define values, which can be set from outside the chart.
+All values located in `values.yaml` are automatically converted to properties.
+
+
+```python
+def init(self):
+    self.domain = property(default = "example.com")
+    self.docker_registry = struct_property(
+        server = property(),
+        username = property(),
+        password = property(),
+    )
+```
+
+### Dependencies
+
+It's possible to define dependencies within your chart.
+
+```python
+def init(self):
+    self.base = depends_on("/tmp/base",">= 1.0")
+```
+
+If you install this package, shalm automatically ensures, 
+that all required dependencies are installed.
+
+### Catalog
+
+You can setup catalogs in your `~/.shalm/config` file
+
+```yaml
+catalogs:
+  - https://github.com/kyma-project/kyma/archive/1.17.0.zip#
+```
+
+Afterwards, you can use those catalogs in you chart
+
+```python
+def init(self):
+    self.base = depends_on("catalog:base",">= 1.0")
+```
+
+This will try to install the chart located in `https://github.com/kyma-project/kyma/archive/1.17.0.zip#base`
+
 ## Packaging charts
 
 You can package `shalm` charts using the following command:
@@ -52,33 +98,6 @@ If you put a `.shalmignore` file in the chart folder, files matching the pattern
 Shalm charts can be applied/deleted using kapp. Therefore, you can pass `--tool kapp` at the command line.
 
 ## Examples
-
-### Share database
-
-The following example shows how a database manager could be shared.
-
-* Define an API for a database manager (e.g. mariadb)
-
-```python
-def create_database(self,db="db",username="",password=""):
-   ...
-```
-
-* Define a constructor for a service, which requires a database
-
-```python
-def init(self,database=None):
-  if database:
-    database.create_database(db="uaa",username="uaa",password="randompass")
-```
-
-* Use the API within another chart
-
-```python
-def init(self):
-  self.mariadb = chart("mariadb")
-  self.uaa = chart("uaa",database = self.mariadb)
-```
 
 ### Override apply, delete or template
 

@@ -9,6 +9,7 @@ type credential struct {
 
 type repoConfigs struct {
 	Credentials []credential `yaml:"credentials,omitempty"`
+	Catalogs    []string     `yaml:"catalogs,omitempty"`
 }
 
 // RepoConfig -
@@ -26,6 +27,14 @@ func WithTokenAuth(url string, token string) RepoConfig {
 func WithBasicAuth(url string, username string, password string) RepoConfig {
 	return func(r *repoConfigs) error {
 		r.Credentials = append(r.Credentials, credential{URL: url, Username: username, Password: password})
+		return nil
+	}
+}
+
+// WithCatalog -
+func WithCatalog(url string) RepoConfig {
+	return func(r *repoConfigs) error {
+		r.Catalogs = append(r.Catalogs, url)
 		return nil
 	}
 }

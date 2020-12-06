@@ -76,7 +76,7 @@ func (v *vaultK8s) Write(name string, data map[string][]byte) error {
 }
 
 func (v *vaultK8s) Read(name string) (map[string][]byte, error) {
-	obj, err := v.k8s.Get("secret", name, &K8sOptions{Namespaced: true})
+	obj, err := v.k8s.Get("secret", name, &K8sOptions{})
 	if err != nil {
 		return nil, err
 	}

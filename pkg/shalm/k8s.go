@@ -17,7 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blang/semver"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/Masterminds/semver/v3"
 	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/labels"
@@ -27,11 +30,12 @@ import (
 
 // K8sOptions common options for calls to k8s
 type K8sOptions struct {
-	Namespaced     bool
+	ClusterScoped  bool
 	Namespace      string
 	Timeout        time.Duration
 	IgnoreNotFound bool
 	Quiet          bool
+	Tool           Tool
 }
 
 // ListOptions -
@@ -51,7 +55,7 @@ type K8sReader interface {
 // K8s kubernetes API
 type K8s interface {
 	K8sReader
-	ForSubChart(namespace string, app string, version semver.Version, children int) K8s
+	ForSubChart(namespace string, app string, version *semver.Version, children int) K8s
 	Inspect() string
 	Watch(kind string, name string, options *K8sOptions) ObjectStream
 	RolloutStatus(kind string, name string, options *K8sOptions) error
@@ -59,6 +63,9 @@ type K8s interface {
 	DeleteObject(kind string, name string, options *K8sOptions) error
 	Apply(output ObjectStream, options *K8sOptions) error
 	Delete(output ObjectStream, options *K8sOptions) error
+	Patch(kind string, name string, pt types.PatchType, patch string, options *K8sOptions) (*Object, error)
+	CreateOrUpdate(obj *Object, mutate func(obj *Object) error, options *K8sOptions) (*Object, error)
+	DeleteByName(kind string, name string, options *K8sOptions) error
 	ConfigContent() *string
 	ForConfig(config string) (K8s, error)
 	WithContext(ctx context.Context) K8s
@@ -132,8 +139,6 @@ type K8sConfigs struct {
 	progressSubscription ProgressSubscription
 	kubeConfig           string
 	progress             int
-	include              *regexp.Regexp
-	exclude              *regexp.Regexp
 	verbose              int
 }
 
@@ -197,8 +202,6 @@ func (v *K8sConfigs) SetTool(tool Tool) {
 // AddFlags -
 func (v *K8sConfigs) AddFlags(flagsSet *pflag.FlagSet) {
 	flagsSet.VarP(&v.tool, "tool", "t", "Tool to do the installation. Possible values kubectl (default) and kapp")
-	flagsSet.VarP(&regexpVar{re: &v.exclude}, "exclude", "e", "Regular expression for exclusion of application or deletion of charts")
-	flagsSet.VarP(&regexpVar{re: &v.include}, "include", "i", "Regular expression for inclusion of application or deletion of charts")
 	flagsSet.IntVarP(&v.verbose, "verbose", "v", 0, "Set kubectl verbose level")
 }
 
@@ -243,7 +246,7 @@ type k8sImpl struct {
 	childrenProgress []int
 	children         int
 	app              string
-	version          semver.Version
+	version          *semver.Version
 	client           *k8sClient
 	host             string
 	ctx              context.Context
@@ -274,15 +277,12 @@ func (k *k8sImpl) progressCb(matched int, count int) {
 
 // Apply -
 func (k *k8sImpl) Apply(output ObjectStream, options *K8sOptions) (err error) {
-	if k.excluded() {
-		return nil
-	}
 	if k.tool == ToolKapp {
 		writer, stream := prepareKapp(output, false, k.objMapper(), k.progressCb)
-		err = runWithStdin(k.kapp("deploy", options, "-f", "-"), stream, writer)
+		err = runWithStdin(k.kapp("deploy", options, "-f", "-"), stream, writer, k.verbose)
 	} else {
 		writer, stream := prepareKubectl(output, false, k.objMapper(), k.progressCb)
-		err = runWithStdin(k.kubectl("apply", options, "-f", "-"), stream, writer)
+		err = runWithStdin(k.kubectl("apply", options, "-f", "-"), stream, writer, k.verbose)
 	}
 	return err
 }
@@ -306,19 +306,18 @@ func (k *k8sImpl) addProgressSubscription() ProgressSubscription {
 		k.reportProgress()
 	}
 }
+
 func (k *k8sImpl) clone() *k8sImpl {
 	return &k8sImpl{namespace: k.namespace, app: k.app, version: k.version, client: k.client, host: k.host, ctx: k.ctx,
 		K8sConfigs: K8sConfigs{
 			progressSubscription: k.addProgressSubscription(),
 			kubeConfig:           k.kubeConfig,
-			tool:                 k.tool,
-			include:              k.include,
-			exclude:              k.exclude,
+			tool:                 ToolKubectl,
 			verbose:              k.verbose,
 		}}
 }
 
-func (k *k8sImpl) ForSubChart(namespace string, app string, version semver.Version, children int) K8s {
+func (k *k8sImpl) ForSubChart(namespace string, app string, version *semver.Version, children int) K8s {
 	result := k.clone()
 	result.namespace = namespace
 	result.app = app
@@ -334,15 +333,12 @@ func (k *k8sImpl) WithContext(ctx context.Context) K8s {
 
 // Delete -
 func (k *k8sImpl) Delete(output ObjectStream, options *K8sOptions) (err error) {
-	if k.excluded() {
-		return nil
-	}
 	if k.tool == ToolKapp {
 		writer, _ := prepareKapp(output, false, k.objMapper(), k.progressCb)
-		err = runWithStdin(k.kapp("delete", options), func(w io.Writer) error { return nil }, writer)
+		err = runWithStdin(k.kapp("delete", options), func(w io.Writer) error { return nil }, writer, k.verbose)
 	} else {
 		writer, stream := prepareKubectl(output, true, k.objMapper(), k.progressCb)
-		err = runWithStdin(k.kubectl("delete", options, "--ignore-not-found", "-f", "-"), stream, writer)
+		err = runWithStdin(k.kubectl("delete", options, "--ignore-not-found", "-f", "-"), stream, writer, k.verbose)
 	}
 	if err != nil && k.IsNotExist(err) {
 		err = nil
@@ -393,6 +389,24 @@ func (k *k8sImpl) Wait(kind string, name string, condition string, options *K8sO
 	return run(k.kubectl("wait", options, kind, name, "--for", condition))
 }
 
+func wrapError(err error) error {
+	statusError, ok := err.(*k8serrors.StatusError)
+	if ok {
+		return fmt.Errorf("HTTP Status: %d, Message: %s", statusError.ErrStatus.Code, statusError.ErrStatus.Message)
+	}
+	return err
+}
+
+func ignoreNotFound(obj *Object, err error, options *K8sOptions) (*Object, error) {
+	if err == nil {
+		return obj, nil
+	}
+	if options.IgnoreNotFound && k8serrors.IsNotFound(err) {
+		return nil, nil
+	}
+	return nil, wrapError(err)
+}
+
 // Get -
 func (k *k8sImpl) Get(kind string, name string, options *K8sOptions) (*Object, error) {
 	if k.client != nil {
@@ -402,7 +416,7 @@ func (k *k8sImpl) Get(kind string, name string, options *K8sOptions) (*Object, e
 		}
 		_, ok := err.(*errUnknownResource)
 		if !ok {
-			return nil, err
+			return ignoreNotFound(obj, err, options)
 		}
 	}
 
@@ -418,11 +432,61 @@ func (k *k8sImpl) Get(kind string, name string, options *K8sOptions) (*Object, e
 	return &result, err
 }
 
+// Patch -
+func (k *k8sImpl) Patch(kind string, name string, pt types.PatchType, patch string, options *K8sOptions) (*Object, error) {
+	if k.client == nil {
+		return nil, errors.New("Not connected")
+	}
+	obj, err := k.client.Patch(pt).Namespace(k.ns(options)).Resource(kind).Name(name).Body([]byte(patch)).Do().Get()
+	return ignoreNotFound(obj, err, options)
+}
+
+func (k *k8sImpl) CreateOrUpdate(obj *Object, mutate func(obj *Object) error, options *K8sOptions) (*Object, error) {
+	if k.client == nil {
+		return nil, errors.New("Not connected")
+	}
+	var req request
+	old, err := k.Get(obj.Kind, obj.MetaData.Name, options)
+	if err != nil {
+		if !k.IsNotExist(err) {
+			return nil, err
+		}
+		req = k.client.Post().Namespace(k.ns(options)).Resource(obj.Kind)
+	} else {
+		obj = old
+		req = k.client.Put().Namespace(k.ns(options)).Resource(obj.Kind).Name(obj.MetaData.Name)
+	}
+	err = mutate(obj)
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	return req.Body(body).Do().Get()
+
+}
+
+func (k *k8sImpl) DeleteByName(kind string, name string, options *K8sOptions) error {
+	if k.client == nil {
+		return errors.New("Not connected")
+	}
+	err := k.client.Delete().Namespace(k.ns(options)).Resource(kind).Name(name).Do().Error()
+	if err != nil {
+		if options.IgnoreNotFound && k8serrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 // List -
 func (k *k8sImpl) List(kind string, options *K8sOptions, listOptions *ListOptions) (*Object, error) {
 	flags := []string{kind, "-o", "json"}
 	if listOptions.AllNamespaces {
-		options.Namespaced = false
+		options.ClusterScoped = true
 		flags = append(flags, "-A")
 	}
 	requirements, selectable := listOptions.LabelSelector.Requirements()
@@ -513,7 +577,7 @@ func run(cmd *exec.Cmd) error {
 }
 
 func (k *k8sImpl) ns(options *K8sOptions) *string {
-	if !options.Namespaced {
+	if options.ClusterScoped {
 		return nil
 	}
 	namespace := k.namespace
@@ -547,10 +611,12 @@ func (k *k8sImpl) kubectl(command string, options *K8sOptions, flags ...string) 
 		c = exec.CommandContext
 	}
 	cmd := c(k.ctx, "kubectl", flags...)
-	if !options.Quiet {
+	if options.Quiet {
+		cmd.Stdout = &bytes.Buffer{}
+	} else {
 		fmt.Println(cmd.String())
+		cmd.Stdout = os.Stdout
 	}
-	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd
 }
@@ -582,15 +648,7 @@ func (k *k8sImpl) kapp(command string, options *K8sOptions, flags ...string) *ex
 	return cmd
 }
 
-func (k *k8sImpl) excluded() bool {
-	result := (k.exclude != nil && k.exclude.MatchString(k.app)) || (k.include != nil && !k.include.MatchString(k.app))
-	if result {
-		k.Progress(100)
-	}
-	return result
-}
-
-func runWithStdin(cmd *exec.Cmd, output func(io.Writer) error, progress io.Writer) error {
+func runWithStdin(cmd *exec.Cmd, output func(io.Writer) error, progress io.Writer, verbose int) error {
 
 	writer, err := cmd.StdinPipe()
 	if err != nil {
@@ -606,7 +664,11 @@ func runWithStdin(cmd *exec.Cmd, output func(io.Writer) error, progress io.Write
 		return fmt.Errorf("error starting %s: %s", cmd.String(), err.Error())
 	}
 	w := &writeCounter{writer: writer}
-	err = output(w)
+	if verbose >= 8 {
+		err = output(io.MultiWriter(w, os.Stderr))
+	} else {
+		err = output(w)
+	}
 	if err != nil {
 		return err
 	}

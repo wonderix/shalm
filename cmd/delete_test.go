@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"path"
 
-	"github.com/blang/semver"
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/wonderix/shalm/pkg/shalm"
 
 	. "github.com/onsi/ginkgo"
@@ -21,11 +21,11 @@ var _ = Describe("Delete Chart", func() {
 				return nil
 			},
 		}
-		k.ForSubChartStub = func(s string, app string, version semver.Version, children int) shalm.K8s {
+		k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) shalm.K8s {
 			return k
 		}
 
-		err := delete(path.Join(example, "cf"), k)
+		err := delete(path.Join(example, "cf"), k, &shalm.DeleteOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		output := writer.String()
 		Expect(output).To(ContainSubstring("CREATE OR REPLACE USER 'uaa'"))

@@ -3,7 +3,9 @@ package shalm
 import (
 	"context"
 
-	"github.com/blang/semver"
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/Masterminds/semver/v3"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/wonderix/shalm/pkg/shalm/test"
@@ -12,7 +14,7 @@ import (
 var _ = Describe("k8s_in_memory", func() {
 	var k8s *K8sInMemory
 	namespace := "test"
-	secret := Object{Kind: "Secret", MetaData: MetaData{Name: "test", Namespace: namespace}}
+	secret := Object{Kind: "Secret", MetaData: MetaData{Name: "test", Namespace: namespace, Annotations: map[string]string{"annotation": "annotation"}}}
 
 	BeforeEach(func() {
 		k8s = NewK8sInMemory(namespace)
@@ -55,7 +57,7 @@ var _ = Describe("k8s_in_memory", func() {
 		Expect(obj.Kind).To(Equal("Secret"))
 	})
 	It("for namespace works", func() {
-		k2 := k8s.ForSubChart("ns", "app", semver.Version{}, 0)
+		k2 := k8s.ForSubChart("ns", "app", &semver.Version{}, 0)
 		Expect(k2.(*K8sInMemory).namespace).To(Equal("ns"))
 	})
 	It("get works", func() {
@@ -63,6 +65,16 @@ var _ = Describe("k8s_in_memory", func() {
 		obj, err := k8s.Get("secret", "test", &K8sOptions{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(obj.Kind).To(Equal("Secret"))
+	})
+	It("patch works", func() {
+		k8s = NewK8sInMemory(namespace, secret)
+		obj, err := k8s.Patch("secret", "test", types.JSONPatchType, `[{"op": "add", "path": "/metadata/annotations/test", "value" : "xxx"}]`, &K8sOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(obj.MetaData.Annotations["test"]).To(Equal("xxx"))
+		obj, err = k8s.Patch("secret", "test", types.JSONPatchType, `[{"op": "remove", "path": "/metadata/annotations/test"}]`, &K8sOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(obj.MetaData.Annotations).NotTo(HaveKey("test"))
+
 	})
 	It("ConfigContent works", func() {
 		dir := NewTestDir()

@@ -9,7 +9,7 @@ import (
 
 	"github.com/k14s/starlark-go/starlark"
 
-	"github.com/blang/semver"
+	"github.com/Masterminds/semver/v3"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/wonderix/shalm/pkg/shalm/test"
@@ -38,7 +38,7 @@ var _ = Describe("Chart", func() {
 			c, err := newChart(thread, repo, dir.Root())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(c.GetName()).To(Equal("mariadb"))
-			Expect(c.GetVersion()).To(Equal(semver.Version{Major: 6, Minor: 12, Patch: 2}))
+			Expect(c.GetVersion()).To(Equal(semver.MustParse("v6.12.2")))
 		})
 
 		It("reads values.yaml", func() {
@@ -65,11 +65,11 @@ var _ = Describe("Chart", func() {
 			dir.WriteFile("values.yaml", []byte("subchart: \n  timeout: \"30s\"\n"), 0644)
 			dir.WriteFile("Chart.star", []byte(`
 def init(self):
-	self.subchart.key2 = "test"
 	self.subchart = chart("subchart")
+	self.subchart.key2 = "test"
 `), 0644)
 			dir.MkdirAll("subchart", 0755)
-			dir.WriteFile("subchart/values.yaml", []byte("delay: \"30s\"\n"), 0644)
+			dir.WriteFile("subchart/values.yaml", []byte("delay: \"30s\"\ntimeout: \"0s\"\n"), 0644)
 			c, err := newChart(thread, repo, dir.Root())
 			Expect(err).NotTo(HaveOccurred())
 			attr, err := c.Attr("subchart")
@@ -110,7 +110,7 @@ def delete(self,k8s):
 `),
 				0644)
 			var err error
-			c, err = newChart(thread, repo, dir.Root())
+			c, err = newChart(thread, repo, dir.Root(), WithSkipChart(true))
 			Expect(err).NotTo(HaveOccurred())
 			err = c.Apply(thread, k8s)
 			Expect(err).NotTo(HaveOccurred())
@@ -141,7 +141,7 @@ def delete(self,k8s):
 			attr, err := c.Attr("apply")
 			Expect(err).NotTo(HaveOccurred())
 			k := &FakeK8s{}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
 			_, err = starlark.Call(thread, attr.(starlark.Callable), starlark.Tuple{NewK8sValue(k)}, nil)
@@ -152,7 +152,7 @@ def delete(self,k8s):
 			attr, err := c.Attr("delete")
 			Expect(err).NotTo(HaveOccurred())
 			k := &FakeK8s{}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
 			_, err = starlark.Call(thread, attr.(starlark.Callable), starlark.Tuple{NewK8sValue(k)}, nil)
@@ -200,7 +200,7 @@ def template(self,glob=''):
 					return i.Encode()(&writer)
 				},
 			}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
 			err := c.Apply(thread, k)
@@ -244,7 +244,7 @@ def template(self,glob=''):
 					return i.Encode()(&writer)
 				},
 			}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
 			err = c.Apply(thread, k)
@@ -282,7 +282,7 @@ def init(self):
 					return i.Encode()(&writer)
 				},
 			}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
 			err := c.Apply(thread, k)
@@ -328,7 +328,7 @@ def init(self):
 					return i.Encode()(&writer)
 				},
 			}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
 			err := c.Apply(thread, k)
@@ -345,10 +345,10 @@ def init(self):
 					return nil
 				},
 			}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
-			err := c.Delete(thread, k)
+			err := c.Delete(thread, k, &DeleteOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer.String()).To(Equal("\n---\n{\"namespace\":\"namespace\"}\n"))
 		})
@@ -387,10 +387,10 @@ def init(self):
 					return nil
 				},
 			}
-			k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+			k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 				return k
 			}
-			err = c.Delete(thread, k)
+			err = c.Delete(thread, k, &DeleteOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k.DeleteCallCount()).To(Equal(2))
 			Expect(writer.String()).To(Equal("\n---\n{\"namespace\":\"chart2\"}\n"))
@@ -437,8 +437,9 @@ def init(self):
 		dir.WriteFile("values.yaml", []byte("replicas: \"1\"\ntimeout: \"30s\"\n"), 0644)
 		c, err := newChart(thread, repo, dir.Root())
 		Expect(err).NotTo(HaveOccurred())
-		Expect(c.String()).To(ContainSubstring("replicas = \"1\""))
-		Expect(c.Hash()).NotTo(Equal(uint32(0)))
+		Expect(c.String()).To(ContainSubstring("default = \"1\""))
+		_, err = c.Hash()
+		Expect(err).To(HaveOccurred())
 		Expect(c.Truth()).To(BeEquivalentTo(true))
 		Expect(c.Type()).To(Equal("chart"))
 		value, err := c.Attr("name")
@@ -489,7 +490,7 @@ def init(self):
 				return true
 			},
 		}
-		k.ForSubChartStub = func(s string, app string, version semver.Version, children int) K8s {
+		k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) K8s {
 			return k
 		}
 		err = c.Apply(thread, k)
@@ -529,8 +530,8 @@ def init(self):
 			dir.MkdirAll("chart1/ytt", 0755)
 			dir.WriteFile("chart1/ytt/values.yaml", []byte("#@ load(\"@ytt:data\", \"data\")\nconfig: #@ data.values.sys_domain\n"), 0644)
 			dir.WriteFile("chart1/Chart.star", []byte(`
-def init(self,config=None):
-	self.config = config
+def init(self):
+	self.config = property()
 def template(self,glob=""):
    return self.ytt("ytt",self.config)
 `), 0644)
@@ -539,7 +540,9 @@ def template(self,glob=""):
 			dir.WriteFile("chart2/Chart.star", []byte(`
 def init(self):
     self.domain = "example.com"
-    self.chart1 = chart("../chart1",config=self.helm("config"))
+    self.chart1 = chart("../chart1")
+    self.chart1.config = self.helm("config")
+
 `), 0644)
 			var err error
 			c, err = newChart(thread, repo, dir.Join("chart2"))
@@ -557,4 +560,40 @@ def init(self):
 		})
 
 	})
+	Context("Referencing charts", func() {
+		var dir TestDir
+		var c ChartValue
+		thread := &starlark.Thread{Name: "main"}
+		BeforeEach(func() {
+			dir = NewTestDir()
+			repo, _ := NewRepo()
+			dir.WriteFile("Chart.star", []byte(`
+def init(self):
+	pass
+`), 0644)
+			var err error
+			c, err = newChart(thread, repo, dir.Root())
+			Expect(err).NotTo(HaveOccurred())
+		})
+		It("counts references correctly", func() {
+			k := NewK8sInMemoryEmpty()
+			err := c.Apply(thread, k)
+			Expect(err).NotTo(HaveOccurred())
+			By("add reference", func() {
+				references, err := c.AddUsedBy("test", k)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(references).To(Equal(1))
+			})
+			By("remove reference", func() {
+				references, err := c.RemoveUsedBy("test", k)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(references).To(Equal(0))
+			})
+		})
+		AfterEach(func() {
+			dir.Remove()
+		})
+
+	})
+
 })

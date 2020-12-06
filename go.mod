@@ -4,9 +4,10 @@ go 1.13
 
 require (
 	code.cloudfoundry.org/lager v2.0.0+incompatible
+	github.com/Masterminds/semver/v3 v3.0.3
 	github.com/Masterminds/sprig/v3 v3.0.2
-	github.com/blang/semver v3.5.1+incompatible
 	github.com/drewolson/testflight v1.0.0 // indirect
+	github.com/evanphx/json-patch v4.9.0+incompatible
 	github.com/fatih/color v1.9.0
 	github.com/go-logr/logr v0.1.0
 	github.com/google/uuid v1.1.1
@@ -34,7 +35,6 @@ require (
 	k8s.io/client-go v0.17.2
 	sigs.k8s.io/controller-runtime v0.5.2
 	sigs.k8s.io/go-open-service-broker-client/v2 v2.0.0-20200911103215-9787cad28392
-	sigs.k8s.io/yaml v1.1.0
 
 )
 

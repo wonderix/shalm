@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/blang/semver"
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/wonderix/shalm/pkg/shalm"
 
 	. "github.com/onsi/ginkgo"
@@ -31,8 +31,11 @@ var _ = Describe("Apply Chart", func() {
 				return i.Encode()(&writer)
 			},
 		}
-		k.ForSubChartStub = func(s string, app string, version semver.Version, children int) shalm.K8s {
+		k.ForSubChartStub = func(s string, app string, version *semver.Version, children int) shalm.K8s {
 			return k
+		}
+		k.GetStub = func(s string, s2 string, options *shalm.K8sOptions) (*shalm.Object, error) {
+			return &shalm.Object{}, nil
 		}
 
 		err := apply(path.Join(example, "cf"), k, shalm.WithNamespace("mynamespace"))
@@ -53,15 +56,15 @@ var _ = Describe("Apply Chart", func() {
 		Expect(kind).To(Equal("statefulset"))
 	})
 
-	It("produces korrect objects", func() {
+	It("produces correct objects", func() {
 		k := shalm.NewK8sInMemory("default")
 
 		err := apply(path.Join(example, "cf"), k, shalm.WithNamespace("mynamespace"))
 		Expect(err).ToNot(HaveOccurred())
-		uaa := k.ForSubChart("uaa", "uaa", semver.Version{}, 0).(*shalm.K8sInMemory)
+		uaa := k.ForSubChart("uaa", "uaa", &semver.Version{}, 0).(*shalm.K8sInMemory)
 		_, err = uaa.GetObject("secret", "uaa-secret", nil)
 		Expect(err).ToNot(HaveOccurred())
-		my := k.ForSubChart("mynamespace", "uaa", semver.Version{}, 0).(*shalm.K8sInMemory)
+		my := k.ForSubChart("mynamespace", "uaa", &semver.Version{}, 0).(*shalm.K8sInMemory)
 		_, err = my.GetObject("statefulset", "mariadb-master", nil)
 		Expect(err).ToNot(HaveOccurred())
 	})
