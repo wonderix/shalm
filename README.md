@@ -39,6 +39,10 @@ How to start shalm from the command line is described [here](doc/command_line.md
 
 There is a [small tutorial](doc/getting_started.md) available.
 
+## Tutorial
+
+You can find a small tutorial, which guides you through the basic features [here](doc/tutorial.md)
+
 ## User Guide
 
 Solutions for a set of problems are shown [here](doc/user_guide.md)
@@ -62,7 +66,7 @@ Shalm also supports [unit testing](doc/unit_tests.md)
 ## Comparison
 
 |                                | shalm           | helm  | ytt/kapp | kustomize |
-|--------------------------------|-----------------|-------|----------|-----------|
+| ------------------------------ | --------------- | ----- | -------- | --------- |
 | Scripting                      | +               | (3.1) | +        | -         |
 | API definition                 | +               | -     | (+)      | -         |
 | Reuse of existing charts       | +               | +     | (+)      | ?         |
