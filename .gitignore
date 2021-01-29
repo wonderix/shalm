@@ -1,9 +1,0 @@
-pylm
-.vscode
-/shalm
-bin
-cover.out
-.idea
-config
-docker-context/
-osb.json

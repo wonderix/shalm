@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: configmap
-data:
-  ca: #@ self.cert.ca
